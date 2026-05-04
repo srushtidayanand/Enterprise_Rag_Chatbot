@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enterprise RAG Chatbot</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <div class="header">
+            <div class="header-left">
+                <h1>🚀 Enterprise Chatbot</h1>
+                <span class="version">v2.0</span>
+            </div>
+            <div class="header-right">
+                <div class="user-info">
+                    <span id="userDisplay">Loading...</span>
+                    <span class="role-badge" id="roleBadge"></span>
+                </div>
+                <button class="btn-logout" onclick="logout()">Logout</button>
+            </div>
+        </div>
+
+        <!-- Main Chat Container -->
+        <div class="chat-container">
+            <!-- Chat History -->
+            <div class="chat-box" id="chatBox"></div>
+
+            <!-- Typing Indicator -->
+            <div id="typingIndicator" class="typing-indicator" style="display: none;">
+                <div class="spinner"></div>
+                <span>AI is thinking...</span>
+            </div>
+        </div>
+
+        <!-- Input Area -->
+        <div class="input-container">
+            <div class="input-wrapper">
+                <input 
+                    type="text" 
+                    id="userInput" 
+                    class="input-field"
+                    placeholder="Ask me anything about company policies..." 
+                    autocomplete="off"
+                />
+                <div class="input-controls">
+                    <button class="btn-send" onclick="sendMessage()" title="Send message">
+                        📤 Send
+                    </button>
+                    <button class="btn-stream" onclick="sendMessageStream()" title="Stream response">
+                        🌊 Stream
+                    </button>
+                    <button class="btn-clear" onclick="clearChat()" title="Clear chat">
+                        🗑️ Clear
+                    </button>
+                </div>
+            </div>
+            <div class="keyboard-hint">💡 Press Enter to send, or use buttons above</div>
+        </div>
+
+        <!-- Stats Footer -->
+        <div class="stats-footer">
+            <span id="statsText">Connected to Enterprise RAG System</span>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

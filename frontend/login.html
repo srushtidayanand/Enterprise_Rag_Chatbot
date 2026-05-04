@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enterprise RAG Chatbot - Login</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 400px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            padding: 40px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            color: #333;
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+            font-family: inherit;
+            transition: border-color 0.3s;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        input::placeholder {
+            color: #999;
+        }
+
+        .demo-credentials {
+            background: #f5f5f5;
+            border-left: 4px solid #667eea;
+            padding: 12px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #555;
+        }
+
+        .demo-credentials p {
+            margin: 5px 0;
+        }
+
+        .demo-credentials strong {
+            color: #667eea;
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .error {
+            color: #e74c3c;
+            font-size: 14px;
+            margin-top: 10px;
+            padding: 10px;
+            background: #ffe5e5;
+            border-radius: 4px;
+            display: none;
+        }
+
+        .success {
+            color: #27ae60;
+            font-size: 14px;
+            margin-top: 10px;
+            padding: 10px;
+            background: #e5ffe5;
+            border-radius: 4px;
+            display: none;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            margin-top: 10px;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 20px;
+            color: #999;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 Enterprise Chatbot</h1>
+            <p>Knowledge Assistant Powered by RAG</p>
+        </div>
+
+        <form id="loginForm" onsubmit="handleLogin(event)">
+            <div class="demo-credentials">
+                <p><strong>Demo Credentials:</strong></p>
+                <p>👤 john / password123 (Employee)</p>
+                <p>👥 alice / password123 (HR)</p>
+                <p>🎯 bob / password123 (Manager)</p>
+            </div>
+
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input 
+                    type="text" 
+                    id="username" 
+                    placeholder="Enter username" 
+                    required 
+                    autocomplete="username"
+                    value="john"
+                />
+            </div>
+
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input 
+                    type="password" 
+                    id="password" 
+                    placeholder="Enter password" 
+                    required 
+                    autocomplete="current-password"
+                    value="password123"
+                />
+            </div>
+
+            <div class="form-group">
+                <label for="role">Role</label>
+                <select id="role" required>
+                    <option value="">Select your role</option>
+                    <option value="employee">👤 Employee</option>
+                    <option value="hr">👥 HR Manager</option>
+                    <option value="manager">🎯 Department Manager</option>
+                </select>
+            </div>
+
+            <button type="submit">Login</button>
+
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p>Logging in...</p>
+            </div>
+
+            <div class="error" id="errorMsg"></div>
+            <div class="success" id="successMsg"></div>
+        </form>
+
+        <div class="footer">
+            <p>Enterprise RAG Chatbot v2.0 | Authentication Enabled</p>
+        </div>
+    </div>
+
+    <script>
+        async function handleLogin(event) {
+            event.preventDefault();
+
+            const username = document.getElementById("username").value;
+            const password = document.getElementById("password").value;
+            const role = document.getElementById("role").value;
+
+            const errorDiv = document.getElementById("errorMsg");
+            const successDiv = document.getElementById("successMsg");
+            const loadingDiv = document.getElementById("loading");
+
+            // Reset messages
+            errorDiv.style.display = "none";
+            successDiv.style.display = "none";
+            loadingDiv.style.display = "block";
+
+            if (!role) {
+                errorDiv.textContent = "Please select a role";
+                errorDiv.style.display = "block";
+                loadingDiv.style.display = "none";
+                return;
+            }
+
+            try {
+                const response = await fetch("http://127.0.0.1:8000/login", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        username: username,
+                        password: password,
+                        role: role
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+
+                    // Store token and user info
+                    localStorage.setItem("token", data.access_token);
+                    localStorage.setItem("username", data.username);
+                    localStorage.setItem("role", data.role);
+
+                    successDiv.textContent = `Welcome, ${data.username}! Redirecting...`;
+                    successDiv.style.display = "block";
+
+                    // Redirect after 1 second
+                    setTimeout(() => {
+                        window.location.href = "index.html";
+                    }, 1000);
+                } else {
+                    const errorData = await response.json();
+                    errorDiv.textContent = errorData.detail || "Login failed. Check credentials.";
+                    errorDiv.style.display = "block";
+                    loadingDiv.style.display = "none";
+                }
+            } catch (error) {
+                errorDiv.textContent = "Connection error. Is the backend running?";
+                errorDiv.style.display = "block";
+                loadingDiv.style.display = "none";
+                console.error("Error:", error);
+            }
+        }
+
+        // Set default role
+        document.getElementById("role").value = "employee";
+    </script>
+</body>
+</html>

@@ -1,169 +1,214 @@
-"""
-Analytics Module - Query tracking and statistics
-"""
-
-from datetime import datetime, timedelta
-from typing import List, Dict, Optional
-from collections import defaultdict, Counter
 import json
-
-# In-memory query log (use real DB in production)
-QUERY_LOG = []
-
-
-class QueryRecord:
-    def __init__(self, username: str, role: str, question: str, answer: str, 
-                 confidence: float, response_time_ms: int, sources_count: int):
-        self.timestamp = datetime.now()
-        self.username = username
-        self.role = role
-        self.question = question
-        self.answer = answer
-        self.confidence = confidence
-        self.response_time_ms = response_time_ms
-        self.sources_count = sources_count
-    
-    def to_dict(self):
-        return {
-            "timestamp": self.timestamp.isoformat(),
-            "username": self.username,
-            "role": self.role,
-            "question": self.question,
-            "answer_length": len(self.answer),
-            "confidence": self.confidence,
-            "response_time_ms": self.response_time_ms,
-            "sources_count": self.sources_count
-        }
+from datetime import datetime, timedelta
+from typing import Optional, Dict, List
+from collections import Counter
+from database import get_db
 
 
-def log_query(username: str, role: str, question: str, answer: str, 
-              confidence: float, response_time_ms: int, sources_count: int = 0):
-    """Log a query for analytics"""
-    record = QueryRecord(username, role, question, answer, confidence, response_time_ms, sources_count)
-    QUERY_LOG.append(record)
+def log_query(username: str, role: str, question: str, answer: str,
+              confidence: float, response_time_ms: int, sources_count: int = 0) -> int:
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+        INSERT INTO query_logs (username, role, question, answer, confidence, response_time_ms, sources_count)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (username, role, question, answer, confidence, response_time_ms, sources_count))
+    query_id = c.lastrowid
+    conn.commit()
+    conn.close()
+    return query_id
+
+
+def log_chat(username: str, role: str, question: str, answer: str,
+             sources: list, confidence: float, response_time_ms: int):
+    conn = get_db()
+    conn.execute("""
+        INSERT INTO chat_history (username, role, question, answer, sources, confidence, response_time_ms)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (username, role, question, answer, json.dumps(sources), confidence, response_time_ms))
+    conn.commit()
+    conn.close()
+
+
+def submit_feedback(query_id: int, feedback: int):
+    conn = get_db()
+    conn.execute("UPDATE query_logs SET feedback = ? WHERE id = ?", (feedback, query_id))
+    conn.commit()
+    conn.close()
 
 
 def get_query_stats(days: int = 7, role: Optional[str] = None) -> Dict:
-    """Get query statistics for a period"""
-    cutoff_time = datetime.now() - timedelta(days=days)
-    
-    # Filter by date
-    filtered_logs = [log for log in QUERY_LOG if log.timestamp >= cutoff_time]
-    
-    # Filter by role if provided
+    cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+    conn = get_db()
+    c = conn.cursor()
+
     if role:
-        filtered_logs = [log for log in filtered_logs if log.role == role]
-    
-    if not filtered_logs:
-        return {
-            "total_queries": 0,
-            "total_users": 0,
-            "avg_response_time_ms": 0,
-            "top_questions": [],
-            "average_confidence_score": 0,
-            "by_role": {},
-            "period_days": days
+        c.execute("SELECT * FROM query_logs WHERE timestamp >= ? AND role = ?", (cutoff, role))
+    else:
+        c.execute("SELECT * FROM query_logs WHERE timestamp >= ?", (cutoff,))
+    rows = c.fetchall()
+    conn.close()
+
+    if not rows:
+        return {"total_queries": 0, "total_users": 0, "avg_response_time_ms": 0,
+                "top_questions": [], "average_confidence_score": 0, "by_role": {}, "period_days": days}
+
+    total = len(rows)
+    users = len(set(r["username"] for r in rows))
+    avg_time = sum(r["response_time_ms"] for r in rows) / total
+    avg_conf = sum(r["confidence"] for r in rows) / total
+
+    q_counts = Counter(r["question"] for r in rows)
+    top_questions = [{"question": q, "count": cnt} for q, cnt in q_counts.most_common(10)]
+
+    by_role: Dict = {}
+    for r in rows:
+        rl = r["role"]
+        if rl not in by_role:
+            by_role[rl] = {"queries": 0, "times": [], "confidences": []}
+        by_role[rl]["queries"] += 1
+        by_role[rl]["times"].append(r["response_time_ms"])
+        by_role[rl]["confidences"].append(r["confidence"])
+
+    for rl in by_role:
+        t = by_role[rl]["times"]
+        cf = by_role[rl]["confidences"]
+        by_role[rl] = {
+            "queries": by_role[rl]["queries"],
+            "avg_time_ms": round(sum(t) / len(t), 2) if t else 0,
+            "avg_confidence": round(sum(cf) / len(cf), 3) if cf else 0,
         }
-    
-    # Calculate statistics
-    total_queries = len(filtered_logs)
-    unique_users = len(set(log.username for log in filtered_logs))
-    avg_response_time = sum(log.response_time_ms for log in filtered_logs) / total_queries
-    avg_confidence = sum(log.confidence for log in filtered_logs) / total_queries
-    
-    # Top questions
-    question_counts = Counter(log.question for log in filtered_logs)
-    top_questions = [
-        {"question": q, "count": c} 
-        for q, c in question_counts.most_common(10)
-    ]
-    
-    # By role
-    by_role = defaultdict(lambda: {"queries": 0, "avg_time_ms": 0, "avg_confidence": 0})
-    role_times = defaultdict(list)
-    role_confidences = defaultdict(list)
-    
-    for log in filtered_logs:
-        by_role[log.role]["queries"] += 1
-        role_times[log.role].append(log.response_time_ms)
-        role_confidences[log.role].append(log.confidence)
-    
-    for role_key in by_role:
-        if role_times[role_key]:
-            by_role[role_key]["avg_time_ms"] = sum(role_times[role_key]) / len(role_times[role_key])
-        if role_confidences[role_key]:
-            by_role[role_key]["avg_confidence"] = sum(role_confidences[role_key]) / len(role_confidences[role_key])
-    
+
     return {
-        "total_queries": total_queries,
-        "total_users": unique_users,
-        "avg_response_time_ms": round(avg_response_time, 2),
+        "total_queries": total,
+        "total_users": users,
+        "avg_response_time_ms": round(avg_time, 2),
         "top_questions": top_questions,
-        "average_confidence_score": round(avg_confidence, 3),
-        "by_role": dict(by_role),
-        "period_days": days
+        "average_confidence_score": round(avg_conf, 3),
+        "by_role": by_role,
+        "period_days": days,
     }
 
 
 def get_user_activity(username: Optional[str] = None, limit: int = 100) -> List[Dict]:
-    """Get user activity logs"""
-    logs = QUERY_LOG[-limit:] if len(QUERY_LOG) > limit else QUERY_LOG
-    
+    conn = get_db()
+    c = conn.cursor()
     if username:
-        logs = [log for log in logs if log.username == username]
-    
-    return [log.to_dict() for log in reversed(logs)]  # Most recent first
+        c.execute("""
+            SELECT id, username, role, question, answer, confidence, response_time_ms,
+                   sources_count, feedback, timestamp
+            FROM query_logs WHERE username = ? ORDER BY timestamp DESC LIMIT ?
+        """, (username, limit))
+    else:
+        c.execute("""
+            SELECT id, username, role, question, answer, confidence, response_time_ms,
+                   sources_count, feedback, timestamp
+            FROM query_logs ORDER BY timestamp DESC LIMIT ?
+        """, (limit,))
+    rows = c.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
-def get_role_stats(role: str) -> Dict:
-    """Get statistics for a specific role"""
-    role_logs = [log for log in QUERY_LOG if log.role == role]
-    
-    if not role_logs:
+def get_chat_history(username: str, limit: int = 50) -> List[Dict]:
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+        SELECT id, question, answer, sources, confidence, response_time_ms, timestamp
+        FROM chat_history WHERE username = ?
+        ORDER BY timestamp DESC LIMIT ?
+    """, (username, limit))
+    rows = c.fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r)
+        d["sources"] = json.loads(d["sources"]) if d["sources"] else []
+        result.append(d)
+    return result
+
+
+def get_evaluation_metrics() -> Dict:
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM query_logs")
+    rows = c.fetchall()
+    conn.close()
+
+    if not rows:
         return {
-            "role": role,
             "total_queries": 0,
-            "users": 0,
+            "avg_confidence": 0,
+            "answer_rate": 0,
+            "feedback_score": 0,
             "avg_response_time_ms": 0,
-            "avg_confidence": 0
+            "confidence_distribution": {"high": 0, "medium": 0, "low": 0},
+            "queries_by_role": {},
+            "thumbs_up": 0,
+            "thumbs_down": 0,
         }
-    
+
+    total = len(rows)
+    avg_conf = sum(r["confidence"] for r in rows) / total
+    avg_time = sum(r["response_time_ms"] for r in rows) / total
+
+    answered = sum(
+        1 for r in rows
+        if r["answer"]
+        and "not available" not in r["answer"].lower()
+        and "don't have information" not in r["answer"].lower()
+        and len(r["answer"]) > 30
+    )
+    answer_rate = answered / total
+
+    feedback_rows = [r for r in rows if r["feedback"] is not None]
+    thumbs_up = sum(1 for r in feedback_rows if r["feedback"] == 1)
+    thumbs_down = sum(1 for r in feedback_rows if r["feedback"] == -1)
+    feedback_score = thumbs_up / len(feedback_rows) if feedback_rows else 0
+
+    high = sum(1 for r in rows if r["confidence"] >= 0.75)
+    medium = sum(1 for r in rows if 0.5 <= r["confidence"] < 0.75)
+    low = sum(1 for r in rows if r["confidence"] < 0.5)
+
+    roles: Dict = {}
+    for r in rows:
+        roles[r["role"]] = roles.get(r["role"], 0) + 1
+
     return {
-        "role": role,
-        "total_queries": len(role_logs),
-        "users": len(set(log.username for log in role_logs)),
-        "avg_response_time_ms": round(sum(log.response_time_ms for log in role_logs) / len(role_logs), 2),
-        "avg_confidence": round(sum(log.confidence for log in role_logs) / len(role_logs), 3),
-        "most_asked": Counter(log.question for log in role_logs).most_common(5)
+        "total_queries": total,
+        "avg_confidence": round(avg_conf, 3),
+        "answer_rate": round(answer_rate, 3),
+        "feedback_score": round(feedback_score, 3),
+        "avg_response_time_ms": round(avg_time, 2),
+        "confidence_distribution": {"high": high, "medium": medium, "low": low},
+        "queries_by_role": roles,
+        "thumbs_up": thumbs_up,
+        "thumbs_down": thumbs_down,
     }
 
 
 def get_performance_metrics() -> Dict:
-    """Get system performance metrics"""
-    if not QUERY_LOG:
-        return {
-            "total_queries": 0,
-            "avg_response_time_ms": 0,
-            "min_response_time_ms": 0,
-            "max_response_time_ms": 0,
-            "avg_confidence": 0
-        }
-    
-    response_times = [log.response_time_ms for log in QUERY_LOG]
-    confidences = [log.confidence for log in QUERY_LOG]
-    
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT response_time_ms, confidence FROM query_logs")
+    rows = c.fetchall()
+    conn.close()
+
+    if not rows:
+        return {"total_queries": 0, "avg_response_time_ms": 0, "min_response_time_ms": 0,
+                "max_response_time_ms": 0, "avg_confidence": 0, "records_stored": 0}
+
+    times = [r["response_time_ms"] for r in rows]
+    confs = [r["confidence"] for r in rows]
+    sorted_times = sorted(times)
+    p95_idx = max(0, int(len(sorted_times) * 0.95) - 1)
+
     return {
-        "total_queries": len(QUERY_LOG),
-        "avg_response_time_ms": round(sum(response_times) / len(response_times), 2),
-        "min_response_time_ms": min(response_times),
-        "max_response_time_ms": max(response_times),
-        "avg_confidence": round(sum(confidences) / len(confidences), 3),
-        "records_stored": len(QUERY_LOG)
+        "total_queries": len(rows),
+        "avg_response_time_ms": round(sum(times) / len(times), 2),
+        "min_response_time_ms": min(times),
+        "max_response_time_ms": max(times),
+        "p95_response_time_ms": sorted_times[p95_idx],
+        "avg_confidence": round(sum(confs) / len(confs), 3),
+        "records_stored": len(rows),
     }
-
-
-def clear_old_logs(days: int = 30):
-    """Clear logs older than specified days"""
-    global QUERY_LOG
-    cutoff_time = datetime.now() - timedelta(days=days)
-    QUERY_LOG = [log for log in QUERY_LOG if log.timestamp >= cutoff_time]

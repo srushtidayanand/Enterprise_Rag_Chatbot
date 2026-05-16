@@ -3,300 +3,382 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Enterprise RAG Chatbot - Login</title>
+    <title>Enterprise AI — Login</title>
+    <script src="config.js"></script>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #312e81 100%);
             min-height: 100vh;
             display: flex;
-            justify-content: center;
             align-items: center;
+            justify-content: center;
             padding: 20px;
         }
 
-        .container {
+        .login-wrapper {
+            display: flex;
             width: 100%;
-            max-width: 400px;
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-            padding: 40px;
+            max-width: 900px;
+            min-height: 540px;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 25px 60px rgba(0,0,0,0.5);
         }
 
-        .header {
-            text-align: center;
-            margin-bottom: 30px;
+        /* Left branding panel */
+        .brand-panel {
+            flex: 1;
+            background: linear-gradient(160deg, #4f46e5 0%, #7c3aed 100%);
+            padding: 50px 40px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            color: white;
         }
 
-        .header h1 {
-            color: #333;
+        .brand-logo {
+            font-size: 36px;
+        }
+
+        .brand-title {
             font-size: 28px;
-            margin-bottom: 10px;
+            font-weight: 700;
+            line-height: 1.3;
+            margin-top: 10px;
         }
 
-        .header p {
-            color: #666;
+        .brand-subtitle {
             font-size: 14px;
+            opacity: 0.8;
+            margin-top: 8px;
+        }
+
+        .brand-features {
+            list-style: none;
+            margin-top: 30px;
+        }
+
+        .brand-features li {
+            font-size: 14px;
+            opacity: 0.9;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .brand-features li::before {
+            content: "✓";
+            background: rgba(255,255,255,0.2);
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            flex-shrink: 0;
+        }
+
+        .brand-footer {
+            font-size: 12px;
+            opacity: 0.6;
+        }
+
+        /* Right form panel */
+        .form-panel {
+            width: 380px;
+            background: white;
+            padding: 48px 40px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .form-header {
+            margin-bottom: 32px;
+        }
+
+        .form-header h2 {
+            font-size: 24px;
+            font-weight: 700;
+            color: #1e293b;
+        }
+
+        .form-header p {
+            font-size: 14px;
+            color: #64748b;
+            margin-top: 6px;
+        }
+
+        .demo-box {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-left: 3px solid #6366f1;
+            border-radius: 8px;
+            padding: 12px 14px;
+            margin-bottom: 24px;
+            font-size: 12px;
+            color: #475569;
+            line-height: 1.8;
+        }
+
+        .demo-box strong {
+            color: #6366f1;
+            display: block;
+            margin-bottom: 4px;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .demo-row {
+            display: flex;
+            justify-content: space-between;
+            cursor: pointer;
+            padding: 2px 4px;
+            border-radius: 4px;
+            transition: background 0.15s;
+        }
+
+        .demo-row:hover {
+            background: #e2e8f0;
         }
 
         .form-group {
-            margin-bottom: 20px;
+            margin-bottom: 18px;
         }
 
         label {
             display: block;
-            margin-bottom: 8px;
-            color: #333;
-            font-weight: 500;
-            font-size: 14px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 6px;
         }
 
         input, select {
             width: 100%;
-            padding: 12px;
-            border: 2px solid #e0e0e0;
-            border-radius: 6px;
+            padding: 11px 14px;
+            border: 1.5px solid #e2e8f0;
+            border-radius: 8px;
             font-size: 14px;
             font-family: inherit;
-            transition: border-color 0.3s;
+            color: #1e293b;
+            background: #f8fafc;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            outline: none;
         }
 
         input:focus, select:focus {
-            outline: none;
-            border-color: #667eea;
+            border-color: #6366f1;
+            background: white;
+            box-shadow: 0 0 0 3px rgba(99,102,241,0.1);
         }
 
-        input::placeholder {
-            color: #999;
-        }
-
-        .demo-credentials {
-            background: #f5f5f5;
-            border-left: 4px solid #667eea;
-            padding: 12px;
-            margin-bottom: 20px;
-            border-radius: 4px;
-            font-size: 12px;
-            color: #555;
-        }
-
-        .demo-credentials p {
-            margin: 5px 0;
-        }
-
-        .demo-credentials strong {
-            color: #667eea;
-        }
-
-        button {
+        .btn-login {
             width: 100%;
-            padding: 12px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 13px;
+            background: linear-gradient(135deg, #6366f1 0%, #7c3aed 100%);
             color: white;
             border: none;
-            border-radius: 6px;
-            font-size: 16px;
+            border-radius: 8px;
+            font-size: 15px;
             font-weight: 600;
             cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
+            transition: transform 0.15s, box-shadow 0.15s;
+            margin-top: 8px;
         }
 
-        button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        .btn-login:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(99,102,241,0.4);
         }
 
-        button:active {
-            transform: translateY(0);
+        .btn-login:active { transform: translateY(0); }
+
+        .btn-login:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+            transform: none;
         }
 
-        .error {
-            color: #e74c3c;
-            font-size: 14px;
-            margin-top: 10px;
-            padding: 10px;
-            background: #ffe5e5;
-            border-radius: 4px;
+        .alert {
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-top: 12px;
             display: none;
         }
 
-        .success {
-            color: #27ae60;
-            font-size: 14px;
-            margin-top: 10px;
-            padding: 10px;
-            background: #e5ffe5;
-            border-radius: 4px;
-            display: none;
+        .alert-error {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            color: #dc2626;
         }
 
-        .loading {
-            display: none;
-            text-align: center;
-            margin-top: 10px;
+        .alert-success {
+            background: #f0fdf4;
+            border: 1px solid #bbf7d0;
+            color: #16a34a;
         }
 
-        .spinner {
-            border: 3px solid #f3f3f3;
-            border-top: 3px solid #667eea;
+        .loading-spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255,255,255,0.4);
+            border-top-color: white;
             border-radius: 50%;
-            width: 30px;
-            height: 30px;
-            animation: spin 1s linear infinite;
-            margin: 0 auto;
+            animation: spin 0.7s linear infinite;
+            margin-right: 8px;
+            vertical-align: middle;
         }
 
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            to { transform: rotate(360deg); }
         }
 
-        .footer {
-            text-align: center;
-            margin-top: 20px;
-            color: #999;
-            font-size: 12px;
+        /* Responsive: hide brand panel on small screens */
+        @media (max-width: 640px) {
+            .brand-panel { display: none; }
+            .form-panel { width: 100%; }
+            .login-wrapper { max-width: 420px; }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>🚀 Enterprise Chatbot</h1>
-            <p>Knowledge Assistant Powered by RAG</p>
+    <div class="login-wrapper">
+        <!-- Left brand panel -->
+        <div class="brand-panel">
+            <div>
+                <div class="brand-logo">🧠</div>
+                <div class="brand-title">Enterprise AI<br>Knowledge Assistant</div>
+                <div class="brand-subtitle">Powered by RAG + Mistral 7B</div>
+                <ul class="brand-features">
+                    <li>Role-based document access</li>
+                    <li>Strict no-hallucination answers</li>
+                    <li>Source citations with downloads</li>
+                    <li>Real-time streaming responses</li>
+                    <li>Analytics &amp; trust metrics</li>
+                </ul>
+            </div>
+            <div class="brand-footer">Enterprise RAG Chatbot v3.0</div>
         </div>
 
-        <form id="loginForm" onsubmit="handleLogin(event)">
-            <div class="demo-credentials">
-                <p><strong>Demo Credentials:</strong></p>
-                <p>👤 john / password123 (Employee)</p>
-                <p>👥 alice / password123 (HR)</p>
-                <p>🎯 bob / password123 (Manager)</p>
+        <!-- Right form panel -->
+        <div class="form-panel">
+            <div class="form-header">
+                <h2>Welcome back</h2>
+                <p>Sign in to your workspace</p>
             </div>
 
-            <div class="form-group">
-                <label for="username">Username</label>
-                <input 
-                    type="text" 
-                    id="username" 
-                    placeholder="Enter username" 
-                    required 
-                    autocomplete="username"
-                    value="john"
-                />
+            <div class="demo-box">
+                <strong>Demo Credentials</strong>
+                <div class="demo-row" onclick="fillLogin('john','password123','employee')">
+                    <span>john / password123</span><span style="color:#6366f1">Employee</span>
+                </div>
+                <div class="demo-row" onclick="fillLogin('alice','password123','hr')">
+                    <span>alice / password123</span><span style="color:#6366f1">HR</span>
+                </div>
+                <div class="demo-row" onclick="fillLogin('bob','password123','manager')">
+                    <span>bob / password123</span><span style="color:#6366f1">Manager</span>
+                </div>
+                <div class="demo-row" onclick="fillLogin('admin','admin123','admin')">
+                    <span>admin / admin123</span><span style="color:#6366f1">Admin</span>
+                </div>
             </div>
 
-            <div class="form-group">
-                <label for="password">Password</label>
-                <input 
-                    type="password" 
-                    id="password" 
-                    placeholder="Enter password" 
-                    required 
-                    autocomplete="current-password"
-                    value="password123"
-                />
-            </div>
+            <form id="loginForm" onsubmit="handleLogin(event)">
+                <div class="form-group">
+                    <label for="username">Username</label>
+                    <input type="text" id="username" placeholder="Enter username" required autocomplete="username" value="john" />
+                </div>
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" placeholder="Enter password" required autocomplete="current-password" value="password123" />
+                </div>
+                <div class="form-group">
+                    <label for="role">Role</label>
+                    <select id="role" required>
+                        <option value="">Select your role</option>
+                        <option value="employee">Employee</option>
+                        <option value="hr">HR Manager</option>
+                        <option value="manager">Department Manager</option>
+                        <option value="admin">Administrator</option>
+                    </select>
+                </div>
 
-            <div class="form-group">
-                <label for="role">Role</label>
-                <select id="role" required>
-                    <option value="">Select your role</option>
-                    <option value="employee">👤 Employee</option>
-                    <option value="hr">👥 HR Manager</option>
-                    <option value="manager">🎯 Department Manager</option>
-                </select>
-            </div>
+                <button type="submit" class="btn-login" id="loginBtn">Sign In</button>
 
-            <button type="submit">Login</button>
-
-            <div class="loading" id="loading">
-                <div class="spinner"></div>
-                <p>Logging in...</p>
-            </div>
-
-            <div class="error" id="errorMsg"></div>
-            <div class="success" id="successMsg"></div>
-        </form>
-
-        <div class="footer">
-            <p>Enterprise RAG Chatbot v2.0 | Authentication Enabled</p>
+                <div class="alert alert-error" id="errorMsg"></div>
+                <div class="alert alert-success" id="successMsg"></div>
+            </form>
         </div>
     </div>
 
     <script>
-        async function handleLogin(event) {
-            event.preventDefault();
+        document.getElementById("role").value = "employee";
 
-            const username = document.getElementById("username").value;
+        function fillLogin(user, pass, role) {
+            document.getElementById("username").value = user;
+            document.getElementById("password").value = pass;
+            document.getElementById("role").value = role;
+        }
+
+        async function handleLogin(e) {
+            e.preventDefault();
+            const username = document.getElementById("username").value.trim();
             const password = document.getElementById("password").value;
-            const role = document.getElementById("role").value;
+            const role     = document.getElementById("role").value;
+            const btn      = document.getElementById("loginBtn");
+            const errEl    = document.getElementById("errorMsg");
+            const okEl     = document.getElementById("successMsg");
 
-            const errorDiv = document.getElementById("errorMsg");
-            const successDiv = document.getElementById("successMsg");
-            const loadingDiv = document.getElementById("loading");
-
-            // Reset messages
-            errorDiv.style.display = "none";
-            successDiv.style.display = "none";
-            loadingDiv.style.display = "block";
+            errEl.style.display = "none";
+            okEl.style.display  = "none";
 
             if (!role) {
-                errorDiv.textContent = "Please select a role";
-                errorDiv.style.display = "block";
-                loadingDiv.style.display = "none";
+                errEl.textContent = "Please select a role.";
+                errEl.style.display = "block";
                 return;
             }
 
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading-spinner"></span>Signing in…';
+
             try {
-                const response = await fetch("http://127.0.0.1:8000/login", {
+                const res = await fetch(`${API_BASE}/login`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        username: username,
-                        password: password,
-                        role: role
-                    })
+                    body: JSON.stringify({ username, password, role }),
                 });
 
-                if (response.ok) {
-                    const data = await response.json();
-
-                    // Store token and user info
-                    localStorage.setItem("token", data.access_token);
+                if (res.ok) {
+                    const data = await res.json();
+                    localStorage.setItem("token",    data.access_token);
                     localStorage.setItem("username", data.username);
-                    localStorage.setItem("role", data.role);
+                    localStorage.setItem("role",     data.role);
 
-                    successDiv.textContent = `Welcome, ${data.username}! Redirecting...`;
-                    successDiv.style.display = "block";
-
-                    // Redirect after 1 second
-                    setTimeout(() => {
-                        window.location.href = "index.html";
-                    }, 1000);
+                    okEl.textContent = `Welcome, ${data.username}! Redirecting…`;
+                    okEl.style.display = "block";
+                    setTimeout(() => window.location.href = "index.html", 900);
                 } else {
-                    const errorData = await response.json();
-                    errorDiv.textContent = errorData.detail || "Login failed. Check credentials.";
-                    errorDiv.style.display = "block";
-                    loadingDiv.style.display = "none";
+                    const err = await res.json();
+                    errEl.textContent = err.detail || "Login failed. Check your credentials.";
+                    errEl.style.display = "block";
+                    btn.disabled = false;
+                    btn.textContent = "Sign In";
                 }
-            } catch (error) {
-                errorDiv.textContent = "Connection error. Is the backend running?";
-                errorDiv.style.display = "block";
-                loadingDiv.style.display = "none";
-                console.error("Error:", error);
+            } catch {
+                errEl.textContent = "Cannot connect to backend. Is the server running on port 8000?";
+                errEl.style.display = "block";
+                btn.disabled = false;
+                btn.textContent = "Sign In";
             }
         }
-
-        // Set default role
-        document.getElementById("role").value = "employee";
     </script>
 </body>
 </html>

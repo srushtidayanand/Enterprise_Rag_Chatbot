@@ -24,6 +24,9 @@ vectorstore/
 .DS_Store
 Thumbs.db
 
+# Database
+*.db
+
 # Logs
 *.log
 

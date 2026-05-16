@@ -1,19 +1,26 @@
 
+import os
+import json
+import logging
+from typing import Optional
+
 from fastapi import FastAPI, Depends, HTTPException, Header
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from typing import Optional
-import json
-import logging
 
-from rag_engine import ask_question, ask_question_stream, ask_question_with_role
+from rag_engine import ask_question_with_role, ask_question_stream, generate_suggestions
 from auth import (
-    authenticate_user, create_access_token, verify_token, 
+    authenticate_user, create_access_token, verify_token,
     LoginRequest, TokenResponse, is_token_blacklisted,
-    logout_token, create_user
+    logout_token, create_user, get_all_users,
 )
-from analytics import log_query, get_query_stats, get_user_activity, get_performance_metrics
+from analytics import (
+    log_query, log_chat, submit_feedback,
+    get_query_stats, get_user_activity, get_chat_history,
+    get_evaluation_metrics, get_performance_metrics,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -21,17 +28,21 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Enterprise RAG Chatbot",
     description="AI Knowledge Assistant powered by FAISS + LM Studio",
-    version="2.0"
+    version="3.0",
 )
 
-# Allow frontend connection
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_credentials=False,
+    allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Serve PDF documents as static files
+_data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data")
+if os.path.exists(_data_dir):
+    app.mount("/documents", StaticFiles(directory=_data_dir), name="documents")
 
 
 # ==================== MODELS ====================
@@ -45,27 +56,30 @@ class ChangePasswordRequest(BaseModel):
     new_password: str
 
 
-# ==================== AUTHENTICATION HELPERS ====================
+class FeedbackRequest(BaseModel):
+    query_id: int
+    feedback: int  # 1 = thumbs up, -1 = thumbs down
+
+
+# ==================== AUTH HELPERS ====================
 
 def verify_auth_header(authorization: Optional[str] = Header(None)):
-    """Extract and verify token from Authorization header"""
     if not authorization:
         raise HTTPException(status_code=401, detail="Authorization header required")
-    
     try:
         scheme, token = authorization.split()
         if scheme.lower() != "bearer":
             raise HTTPException(status_code=401, detail="Invalid authorization scheme")
     except ValueError:
         raise HTTPException(status_code=401, detail="Invalid authorization header")
-    
+
     if is_token_blacklisted(token):
         raise HTTPException(status_code=401, detail="Token has been revoked")
-    
+
     payload = verify_token(token)
     if not payload:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
-    
+
     return payload
 
 
@@ -73,240 +87,227 @@ def verify_auth_header(authorization: Optional[str] = Header(None)):
 
 @app.get("/")
 def home():
-    """Health check endpoint"""
     return {
-        "message": "Enterprise RAG Chatbot Running 🚀",
-        "version": "2.0",
-        "features": ["RAG", "Citations", "Streaming", "Authentication", "Analytics"]
+        "message": "Enterprise RAG Chatbot v3.0",
+        "features": ["RAG", "Citations", "Streaming", "Auth", "Analytics", "Feedback", "Suggestions"],
     }
+
+
+@app.get("/health")
+def health_check():
+    return {"status": "healthy", "version": "3.0"}
 
 
 @app.post("/login", response_model=TokenResponse)
 def login(credentials: LoginRequest):
-    """
-    User login endpoint - returns JWT token
-    
-    Test credentials:
-    - username: john, password: password123, role: employee
-    - username: alice, password: password123, role: hr
-    - username: bob, password: password123, role: manager
-    """
     user = authenticate_user(credentials.username, credentials.password, credentials.role)
-    
     if not user:
-        logger.warning(f"Failed login attempt: {credentials.username}")
+        logger.warning(f"Failed login: {credentials.username}")
         raise HTTPException(status_code=401, detail="Invalid credentials or role mismatch")
-    
-    token, expires_in = create_access_token({
-        "username": user["username"],
-        "role": user["role"]
-    })
-    
-    logger.info(f"User logged in: {user['username']} ({user['role']})")
-    
+
+    token, expires_in = create_access_token({"username": user["username"], "role": user["role"]})
+    logger.info(f"Login: {user['username']} ({user['role']})")
+
     return TokenResponse(
         access_token=token,
         token_type="bearer",
         expires_in=expires_in,
         role=user["role"],
-        username=user["username"]
+        username=user["username"],
     )
 
 
 # ==================== AUTHENTICATED ENDPOINTS ====================
 
-@app.post("/ask")
-def ask(
-    q: Question,
-    current_user = Depends(verify_auth_header)
-):
-    """
-    Ask a question - requires authentication
-    Returns answer with sources, confidence, and timing metrics
-    """
-    result = ask_question_with_role(q.question, role=current_user.get("role", "employee"))
-    
-    # Log analytics
-    log_query(
-        username=current_user["username"],
-        role=current_user["role"],
-        question=q.question,
-        answer=result["answer"],
-        confidence=result.get("confidence", 0.0),
-        response_time_ms=result.get("total_time_ms", 0),
-        sources_count=len(result.get("sources", []))
-    )
-    
-    return result
-
-
-@app.post("/ask-stream")
-def ask_stream(
-    q: Question,
-    current_user = Depends(verify_auth_header)
-):
-    """
-    Stream a response - returns Server-Sent Events
-    Shows response as it's being generated by the LLM
-    """
-    def generate():
-        role = current_user.get("role", "employee")
-        try:
-            for chunk in ask_question_stream(q.question, role=role):
-                yield f"data: {chunk}\n\n"
-        except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
-    
-    # Log analytics
-    log_query(
-        username=current_user["username"],
-        role=current_user["role"],
-        question=q.question,
-        answer="[streaming response]",
-        confidence=0.0,
-        response_time_ms=0,
-        sources_count=0
-    )
-    
-    return StreamingResponse(generate(), media_type="text/event-stream")
-
-
 @app.post("/logout")
-def logout(current_user = Depends(verify_auth_header), authorization: Optional[str] = Header(None)):
-    """Logout - blacklist the current token"""
+def logout(
+    current_user=Depends(verify_auth_header),
+    authorization: Optional[str] = Header(None),
+):
     if authorization:
         token = authorization.split()[-1]
         logout_token(token)
-    
-    logger.info(f"User logged out: {current_user['username']}")
+    logger.info(f"Logout: {current_user['username']}")
     return {"message": "Successfully logged out"}
 
 
 @app.post("/change-password")
-def change_password(
+def change_password_endpoint(
     req: ChangePasswordRequest,
-    current_user = Depends(verify_auth_header)
+    current_user=Depends(verify_auth_header),
 ):
-    """Change password for current user"""
     from auth import change_password
-    
-    username = current_user["username"]
-    
-    if not change_password(username, req.old_password, req.new_password):
+    if not change_password(current_user["username"], req.old_password, req.new_password):
         raise HTTPException(status_code=400, detail="Failed to change password")
-    
-    logger.info(f"Password changed: {username}")
     return {"message": "Password changed successfully"}
 
 
-# ==================== ANALYTICS ENDPOINTS ====================
+@app.get("/user/info")
+def get_user_info(current_user=Depends(verify_auth_header)):
+    return {"username": current_user["username"], "role": current_user["role"], "authenticated": True}
+
+
+# ==================== CHAT ENDPOINTS ====================
+
+@app.post("/ask")
+def ask(q: Question, current_user=Depends(verify_auth_header)):
+    role = current_user.get("role", "employee")
+    result = ask_question_with_role(q.question, role=role)
+
+    query_id = log_query(
+        username=current_user["username"],
+        role=role,
+        question=q.question,
+        answer=result["answer"],
+        confidence=result.get("confidence", 0.0),
+        response_time_ms=result.get("total_time_ms", 0),
+        sources_count=len(result.get("sources", [])),
+    )
+    log_chat(
+        username=current_user["username"],
+        role=role,
+        question=q.question,
+        answer=result["answer"],
+        sources=result.get("sources", []),
+        confidence=result.get("confidence", 0.0),
+        response_time_ms=result.get("total_time_ms", 0),
+    )
+
+    result["query_id"] = query_id
+    return result
+
+
+@app.post("/ask-stream")
+def ask_stream(q: Question, current_user=Depends(verify_auth_header)):
+    role = current_user.get("role", "employee")
+
+    query_id = log_query(
+        username=current_user["username"],
+        role=role,
+        question=q.question,
+        answer="[streaming]",
+        confidence=0.0,
+        response_time_ms=0,
+        sources_count=0,
+    )
+
+    def generate():
+        yield f"data: {json.dumps({'type': 'query_id', 'query_id': query_id})}\n\n"
+        try:
+            for chunk in ask_question_stream(q.question, role=role):
+                yield f"data: {chunk}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+@app.post("/suggestions")
+def get_suggestions(q: Question, current_user=Depends(verify_auth_header)):
+    role = current_user.get("role", "employee")
+    return generate_suggestions(q.question, role)
+
+
+@app.get("/chat/history")
+def chat_history(limit: int = 50, current_user=Depends(verify_auth_header)):
+    return {"history": get_chat_history(current_user["username"], limit=limit)}
+
+
+# ==================== FEEDBACK ====================
+
+@app.post("/feedback")
+def feedback_endpoint(req: FeedbackRequest, current_user=Depends(verify_auth_header)):
+    if req.feedback not in (1, -1):
+        raise HTTPException(status_code=400, detail="Feedback must be 1 (up) or -1 (down)")
+    submit_feedback(req.query_id, req.feedback)
+    return {"message": "Feedback recorded"}
+
+
+# ==================== DOCUMENTS ====================
+
+@app.get("/documents/list")
+def list_documents(current_user=Depends(verify_auth_header)):
+    role = current_user["role"]
+    data_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data")
+    extensions = (".pdf", ".docx", ".doc")
+
+    subfolders = ["employee", "hr", "manager"] if role == "admin" else [role]
+    docs = []
+    for subfolder in subfolders:
+        folder = os.path.join(data_path, subfolder)
+        if os.path.exists(folder):
+            for f in sorted(os.listdir(folder)):
+                if f.endswith(extensions):
+                    docs.append({
+                        "filename": f,
+                        "role": subfolder,
+                        "doc_url": f"{subfolder}/{f}",
+                    })
+
+    return {"documents": docs}
+
+
+# ==================== ANALYTICS ====================
 
 @app.get("/analytics/stats")
 def get_stats(
     days: int = 7,
     role: Optional[str] = None,
-    current_user = Depends(verify_auth_header)
+    current_user=Depends(verify_auth_header),
 ):
-    """Get query statistics"""
-    # Only admins can see all stats, others see their role's stats
     if current_user["role"] != "admin" and role and role != current_user["role"]:
         raise HTTPException(status_code=403, detail="Not authorized")
-    
     if current_user["role"] != "admin":
         role = current_user["role"]
-    
     return get_query_stats(days=days, role=role)
 
 
 @app.get("/analytics/performance")
-def get_perf_metrics(current_user = Depends(verify_auth_header)):
-    """Get system performance metrics"""
-    if current_user["role"] != "admin" and current_user["role"] != "hr":
+def get_perf_metrics(current_user=Depends(verify_auth_header)):
+    if current_user["role"] not in ("admin", "hr"):
         raise HTTPException(status_code=403, detail="Not authorized")
-    
     return get_performance_metrics()
 
 
 @app.get("/analytics/activity")
-def get_activity(
-    limit: int = 50,
-    current_user = Depends(verify_auth_header)
-):
-    """Get user activity logs"""
-    if current_user["role"] != "admin" and current_user["role"] != "hr":
-        # Non-admin users only see their own activity
-        return get_user_activity(username=current_user["username"], limit=limit)
-    
-    return get_user_activity(limit=limit)
+def get_activity(limit: int = 50, current_user=Depends(verify_auth_header)):
+    if current_user["role"] in ("admin", "hr"):
+        return get_user_activity(limit=limit)
+    return get_user_activity(username=current_user["username"], limit=limit)
 
 
-@app.get("/user/info")
-def get_user_info(current_user = Depends(verify_auth_header)):
-    """Get current user information"""
-    return {
-        "username": current_user["username"],
-        "role": current_user["role"],
-        "authenticated": True
-    }
+@app.get("/metrics/evaluation")
+def evaluation_metrics(current_user=Depends(verify_auth_header)):
+    return get_evaluation_metrics()
 
 
-# ==================== ADMIN ENDPOINTS ====================
+# ==================== ADMIN ====================
 
 @app.post("/admin/create-user")
-def create_new_user(
-    credentials: LoginRequest,
-    current_user = Depends(verify_auth_header)
-):
-    """Create new user (admin only)"""
+def create_new_user(credentials: LoginRequest, current_user=Depends(verify_auth_header)):
     if current_user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
-    
     if not create_user(credentials.username, credentials.password, credentials.role):
         raise HTTPException(status_code=400, detail="User already exists or invalid role")
-    
-    logger.info(f"New user created: {credentials.username} ({credentials.role}) by {current_user['username']}")
-    return {"message": f"User {credentials.username} created successfully"}
+    logger.info(f"User created: {credentials.username} by {current_user['username']}")
+    return {"message": f"User {credentials.username} created"}
 
 
 @app.get("/admin/users")
-def list_users(current_user = Depends(verify_auth_header)):
-    """List all users (admin only)"""
+def list_users(current_user=Depends(verify_auth_header)):
     if current_user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
-    
-    from auth import USERS_DB
-    return {
-        "users": [
-            {"username": u, "role": USERS_DB[u]["role"]}
-            for u in USERS_DB
-        ],
-        "total": len(USERS_DB)
-    }
+    users = get_all_users()
+    return {"users": users, "total": len(users)}
 
 
 @app.get("/admin/stats-detailed")
-def get_detailed_stats(
-    days: int = 30,
-    current_user = Depends(verify_auth_header)
-):
-    """Get detailed statistics (admin only)"""
+def get_detailed_stats(days: int = 30, current_user=Depends(verify_auth_header)):
     if current_user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
-    
     return {
         "overall": get_query_stats(days=days),
         "performance": get_performance_metrics(),
-        "recent_activity": get_user_activity(limit=20)
-    }
-
-
-# ==================== ERROR HANDLERS ====================
-
-@app.get("/health")
-def health_check():
-    """Detailed health check"""
-    return {
-        "status": "healthy",
-        "timestamp": "2024-04-18",
-        "version": "2.0"
+        "evaluation": get_evaluation_metrics(),
+        "recent_activity": get_user_activity(limit=20),
     }

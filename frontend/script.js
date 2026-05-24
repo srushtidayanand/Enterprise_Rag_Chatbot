@@ -1,3 +1,108 @@
+// ===== PDF VIEWER =====
+
+if (typeof pdfjsLib !== "undefined") {
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+}
+
+let _pdfDoc = null;
+let _pdfPage = 1;
+let _pdfSnippet = "";
+
+async function openPdfViewer(url, page, snippet) {
+    _pdfPage   = Math.max(1, page + 1);
+    _pdfSnippet = snippet || "";
+
+    const modal = document.getElementById("pdfModal");
+    document.getElementById("pdfModalTitle").textContent = decodeURIComponent(url.split("/").pop());
+    modal.classList.add("open");
+
+    const banner = document.getElementById("pdfSnippetBanner");
+    if (snippet) {
+        banner.innerHTML = `<strong>Matched excerpt</strong>${escapeHtml(snippet)}`;
+        banner.classList.add("visible");
+    } else {
+        banner.classList.remove("visible");
+    }
+
+    try {
+        // Fetch PDF with JWT token so unauthorized users are blocked
+        const fullUrl = url.startsWith("http") ? url : `${API_BASE}${url}`;
+        const resp = await fetch(fullUrl, { headers: { "Authorization": `Bearer ${getToken()}` } });
+        if (!resp.ok) {
+            throw new Error(resp.status === 403 ? "Access denied to this document" : `HTTP ${resp.status}`);
+        }
+        const arrayBuffer = await resp.arrayBuffer();
+        _pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        await _renderPdfPage(_pdfPage);
+    } catch (e) {
+        const canvas = document.getElementById("pdfCanvas");
+        const ctx = canvas.getContext("2d");
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#e53e3e";
+        ctx.font = "14px sans-serif";
+        ctx.fillText("Failed to load PDF: " + e.message, 10, 30);
+    }
+}
+
+async function _renderPdfPage(pageNum) {
+    if (!_pdfDoc) return;
+    pageNum = Math.min(Math.max(1, pageNum), _pdfDoc.numPages);
+    _pdfPage = pageNum;
+
+    const page = await _pdfDoc.getPage(pageNum);
+    const scale    = 1.5;
+    const viewport = page.getViewport({ scale });
+
+    const canvas = document.getElementById("pdfCanvas");
+    canvas.width  = viewport.width;
+    canvas.height = viewport.height;
+    await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+
+    // Build text layer
+    const textContent = await page.getTextContent();
+    const layer = document.getElementById("pdfTextLayer");
+    layer.innerHTML = "";
+    layer.style.width  = viewport.width  + "px";
+    layer.style.height = viewport.height + "px";
+
+    const snippetWords = _pdfSnippet
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, "")
+        .split(/\s+/)
+        .filter(w => w.length > 3);
+
+    for (const item of textContent.items) {
+        if (!item.str.trim()) continue;
+        const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
+        const h  = Math.sqrt(tx[2] * tx[2] + tx[3] * tx[3]);
+
+        const span = document.createElement("span");
+        span.textContent  = item.str;
+        span.style.left   = `${tx[4]}px`;
+        span.style.top    = `${tx[5] - h}px`;
+        span.style.fontSize = `${h}px`;
+
+        const word = item.str.toLowerCase().replace(/[^a-z0-9\s]/g, "");
+        if (snippetWords.length && snippetWords.some(w => word.includes(w))) {
+            span.classList.add("pdf-highlight");
+        }
+        layer.appendChild(span);
+    }
+
+    document.getElementById("pdfPageInfo").textContent =
+        `Page ${pageNum} of ${_pdfDoc.numPages}`;
+}
+
+function changePdfPage(delta) {
+    if (_pdfDoc) _renderPdfPage(_pdfPage + delta);
+}
+
+function closePdfModal(event) {
+    if (event && event.target !== document.getElementById("pdfModal")) return;
+    document.getElementById("pdfModal").classList.remove("open");
+}
+
 // ===== AUTH =====
 
 function getToken()    { return localStorage.getItem("token"); }
@@ -186,7 +291,6 @@ function renderBotMessage(answer, sources, confidence, timing, queryId) {
 
         sources.forEach(src => {
             const viewUrl = src.doc_url ? `${API_BASE}/documents/${encodeDocUrl(src.doc_url)}` : null;
-            const dlUrl   = viewUrl ? viewUrl + "?download=1" : null;
 
             const card = document.createElement("div");
             card.className = "source-card";
@@ -195,8 +299,8 @@ function renderBotMessage(answer, sources, confidence, timing, queryId) {
                     <span class="source-name">📄 ${escapeHtml(src.filename)}</span>
                     <span class="source-page">Page ${src.page + 1}</span>
                     <div class="source-actions">
-                        ${viewUrl ? `<a class="btn-source btn-view" href="${viewUrl}" target="_blank">View</a>` : ""}
-                        ${viewUrl ? `<a class="btn-source btn-download" href="${viewUrl}" download="${escapeHtml(src.filename)}">Download</a>` : ""}
+                        ${viewUrl ? `<button class="btn-source btn-view" onclick="openPdfViewer('${viewUrl}', ${src.page}, ${JSON.stringify(src.snippet)})">🔍 View & Highlight</button>` : ""}
+                        ${viewUrl ? `<a class="btn-source btn-download" href="${viewUrl}" download="${escapeHtml(src.filename)}">⬇ Download</a>` : ""}
                     </div>
                 </div>
                 <div class="source-snippet">${escapeHtml(src.snippet)}</div>`;

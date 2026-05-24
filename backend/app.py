@@ -2,19 +2,21 @@
 import os
 import json
 import logging
+import time
+from collections import defaultdict
+from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, Depends, HTTPException, Header
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, Depends, HTTPException, Header, Request
+from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from rag_engine import ask_question_with_role, ask_question_stream, generate_suggestions
 from auth import (
     authenticate_user, create_access_token, verify_token,
     LoginRequest, TokenResponse, is_token_blacklisted,
-    logout_token, create_user, get_all_users,
+    logout_token, create_user, get_all_users, cleanup_expired_tokens,
 )
 from analytics import (
     log_query, log_chat, submit_feedback,
@@ -22,8 +24,19 @@ from analytics import (
     get_evaluation_metrics, get_performance_metrics,
 )
 
+# Load .env
+_env_path = Path(__file__).parent / ".env"
+if _env_path.exists():
+    for _line in _env_path.read_text().splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith("#") and "=" in _line:
+            _k, _v = _line.split("=", 1)
+            os.environ.setdefault(_k.strip(), _v.strip())
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+ALLOWED_ORIGIN = os.environ.get("ALLOWED_ORIGIN", "http://192.168.1.2:8001")
 
 app = FastAPI(
     title="Enterprise RAG Chatbot",
@@ -33,16 +46,27 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[ALLOWED_ORIGIN, "http://localhost:8001"],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Serve PDF documents as static files
+# Simple in-memory rate limiter for login endpoint (IP -> [timestamps])
+_login_attempts: dict = defaultdict(list)
+MAX_LOGIN_RATE = 10      # max attempts
+LOGIN_WINDOW_SEC = 60    # per 60 seconds
+
+
+def _check_rate_limit(ip: str):
+    now = time.time()
+    attempts = [t for t in _login_attempts[ip] if now - t < LOGIN_WINDOW_SEC]
+    _login_attempts[ip] = attempts
+    if len(attempts) >= MAX_LOGIN_RATE:
+        raise HTTPException(status_code=429, detail="Too many login attempts. Wait 60 seconds.")
+    _login_attempts[ip].append(now)
+
 _data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data")
-if os.path.exists(_data_dir):
-    app.mount("/documents", StaticFiles(directory=_data_dir), name="documents")
 
 
 # ==================== MODELS ====================
@@ -99,12 +123,18 @@ def health_check():
 
 
 @app.post("/login", response_model=TokenResponse)
-def login(credentials: LoginRequest):
-    user = authenticate_user(credentials.username, credentials.password, credentials.role)
+def login(credentials: LoginRequest, request: Request):
+    _check_rate_limit(request.client.host)
+    try:
+        user = authenticate_user(credentials.username, credentials.password, credentials.role)
+    except ValueError as e:
+        raise HTTPException(status_code=423, detail=str(e))
+
     if not user:
         logger.warning(f"Failed login: {credentials.username}")
         raise HTTPException(status_code=401, detail="Invalid credentials or role mismatch")
 
+    cleanup_expired_tokens()
     token, expires_in = create_access_token({"username": user["username"], "role": user["role"]})
     logger.info(f"Login: {user['username']} ({user['role']})")
 
@@ -137,8 +167,11 @@ def change_password_endpoint(
     current_user=Depends(verify_auth_header),
 ):
     from auth import change_password
-    if not change_password(current_user["username"], req.old_password, req.new_password):
-        raise HTTPException(status_code=400, detail="Failed to change password")
+    try:
+        if not change_password(current_user["username"], req.old_password, req.new_password):
+            raise HTTPException(status_code=400, detail="Old password is incorrect")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return {"message": "Password changed successfully"}
 
 
@@ -225,26 +258,60 @@ def feedback_endpoint(req: FeedbackRequest, current_user=Depends(verify_auth_hea
 
 # ==================== DOCUMENTS ====================
 
+ROLE_ACCESS = {
+    "employee": ["employee"],
+    "hr":       ["hr"],
+    "manager":  ["manager"],
+    "admin":    ["employee", "hr", "manager"],
+}
+
+
 @app.get("/documents/list")
 def list_documents(current_user=Depends(verify_auth_header)):
     role = current_user["role"]
-    data_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data")
     extensions = (".pdf", ".docx", ".doc")
-
-    subfolders = ["employee", "hr", "manager"] if role == "admin" else [role]
+    subfolders = ROLE_ACCESS.get(role, [role])
     docs = []
     for subfolder in subfolders:
-        folder = os.path.join(data_path, subfolder)
+        folder = os.path.join(_data_dir, subfolder)
         if os.path.exists(folder):
             for f in sorted(os.listdir(folder)):
                 if f.endswith(extensions):
                     docs.append({
                         "filename": f,
                         "role": subfolder,
-                        "doc_url": f"{subfolder}/{f}",
+                        "doc_url": f"/documents/download/{subfolder}/{f}",
                     })
-
     return {"documents": docs}
+
+
+@app.get("/documents/download/{file_role}/{filename}")
+def download_document(
+    file_role: str,
+    filename: str,
+    current_user=Depends(verify_auth_header),
+):
+    user_role = current_user["role"]
+    allowed_folders = ROLE_ACCESS.get(user_role, [])
+
+    if file_role not in allowed_folders:
+        raise HTTPException(status_code=403, detail="You do not have permission to access this document")
+
+    # Prevent path traversal attacks
+    if ".." in filename or "/" in filename or "\\" in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    file_path = os.path.join(_data_dir, file_role, filename)
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    logger.info(f"Document accessed: {file_role}/{filename} by {current_user['username']} ({user_role})")
+    return FileResponse(
+        path=file_path,
+        media_type="application/pdf",
+        filename=filename,
+    )
 
 
 # ==================== ANALYTICS ====================

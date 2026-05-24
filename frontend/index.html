@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Enterprise AI Assistant</title>
     <script src="config.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -112,6 +113,28 @@
         </div>
 
     </main>
+</div>
+
+<!-- PDF Viewer Modal -->
+<div id="pdfModal" class="pdf-modal" onclick="closePdfModal(event)">
+    <div class="pdf-modal-box">
+        <div class="pdf-modal-header">
+            <span id="pdfModalTitle" class="pdf-modal-filename">Document Viewer</span>
+            <div class="pdf-modal-controls">
+                <button onclick="changePdfPage(-1)">◀ Prev</button>
+                <span id="pdfPageInfo">Page 1</span>
+                <button onclick="changePdfPage(1)">Next ▶</button>
+                <button class="btn-close-modal" onclick="closePdfModal()">✕ Close</button>
+            </div>
+        </div>
+        <div class="pdf-snippet-banner" id="pdfSnippetBanner"></div>
+        <div class="pdf-modal-body">
+            <div class="pdf-canvas-wrap">
+                <canvas id="pdfCanvas"></canvas>
+                <div id="pdfTextLayer" class="pdf-text-layer"></div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script src="script.js"></script>
